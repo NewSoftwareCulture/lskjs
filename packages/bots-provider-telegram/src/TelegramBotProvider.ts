@@ -200,6 +200,41 @@ export default class TelegramBotProvider extends BaseBotProvider {
   //   const forwardFrom = this.getForwardFrom(ctx);
   //   return this.client.forwardMessage(chatId, forwardFrom, message.message_id);
   // };
+  async saveMessage(ctx: TelegramIBotProviderMessageCtx): Promise<any> {
+    const BotsEventModel = await this.botsModule.module('models.BotsEventModel');
+    const BotsTelegramMessageModel = await this.botsModule.module('models.BotsTelegramMessageModel');
+    const BotsTelegramUserModel = await this.botsModule.module('models.BotsTelegramUserModel');
+    const BotsTelegramChatModel = await this.botsModule.module('models.BotsTelegramChatModel');
+    const botId = this.getBotId();
+    const type = this.getMessageType(ctx);
+    const eventData = this.getMessage(ctx);
+    const { from, chat } = eventData;
+    const { _id: telegramUserId } = await BotsTelegramUserModel.findOneAndUpdate({ id: from.id }, from, {
+      new: true,
+      upsert: true,
+    });
+    let chatUserId;
+    if (chat && chat.id < 0) {
+      ({ _id: chatUserId } = await BotsTelegramChatModel.findOneAndUpdate({ id: chat.id }, from, {
+        new: true,
+        upsert: true,
+      }));
+    }
+    await BotsTelegramMessageModel.create({
+      botId,
+      telegramUserId,
+      chatUserId,
+      type,
+      ...eventData,
+    });
+    await BotsEventModel.create({
+      botId,
+      provider: this.provider,
+      type: 'message',
+      data: eventData,
+    });
+    this.log.trace('[message]: ', eventData);
+  }
 
   /**
    * Function for resend content
@@ -217,10 +252,6 @@ export default class TelegramBotProvider extends BaseBotProvider {
     const message = this.getMessage(ctx);
     // console.log({ ctx, type, message });
     this.log.trace('repost', type);
-
-    // if (ctx.group) {
-    //   ctx
-    // }
 
     let method: string;
     let args: any[];
@@ -297,7 +328,9 @@ export default class TelegramBotProvider extends BaseBotProvider {
     }
     const telegramArgs = [chatId, ...args, extra];
     this.log.trace(`telegram.${method}`, ...telegramArgs);
-    return this.client.telegram[method](...telegramArgs);
+    const msg = await this.client.telegram[method](...telegramArgs);
+    await this.saveMessage(msg);
+    return msg;
   }
 
   async sendContent(ctx: TelegramIBotProviderMessageCtx, content: any, extra = {}): Promise<any> {
@@ -322,7 +355,8 @@ export default class TelegramBotProvider extends BaseBotProvider {
       method = 'sendMessage';
     }
     // this.log.trace('ctx', method)
-    await this[method](ctx, payload, extra);
+    const msg = await this[method](ctx, payload, extra);
+    await this.saveMessage(msg);
   }
 
   async replyContent(ctx: TelegramIBotProviderMessageCtx, content: any, extra = {}): Promise<any> {
@@ -344,7 +378,8 @@ export default class TelegramBotProvider extends BaseBotProvider {
     } else {
       method = 'reply';
     }
-    await ctx[method](payload, extra);
+    const msg = await ctx[method](payload, extra);
+    await this.saveMessage(msg);
   }
   reply(ctx: TelegramIBotProviderMessageCtx, payload: any, initExtra = {}) {
     this.log.trace('reply');
@@ -353,10 +388,12 @@ export default class TelegramBotProvider extends BaseBotProvider {
       ...initExtra,
     };
     // console.log({extra})
-    return this.client.telegram.sendMessage(this.getMessageTargetId(ctx), payload, extra).catch((err: any) => {
+    const msg = this.client.telegram.sendMessage(this.getMessageTargetId(ctx), payload, extra).catch((err: any) => {
       this.log.error(err);
       throw err;
     });
+    await this.saveMessage(msg);
+    return msg;
   }
   editMessage(ctx: TelegramIBotProviderMessageCtx, payload: any, extra = {}) {
     this.log.trace('editMessage');
@@ -375,23 +412,33 @@ export default class TelegramBotProvider extends BaseBotProvider {
   }
   sendMessage(ctx: any, ...args: any[]) {
     this.log.trace('sendMessage');
-    return this.client.telegram.sendMessage(this.getMessageTargetId(ctx), ...args);
+    const msg = this.client.telegram.sendMessage(this.getMessageTargetId(ctx), ...args);
+    await this.saveMessage(msg);
+    return msg;
   }
   sendSticker(ctx: any, ...args: any[]) {
     this.log.trace('sendSticker');
-    return this.client.telegram.sendSticker(this.getMessageTargetId(ctx), ...args);
+    const msg = this.client.telegram.sendSticker(this.getMessageTargetId(ctx), ...args);
+    await this.saveMessage(msg);
+    return msg;
   }
   sendAnimation(ctx: any, ...args: any[]) {
     this.log.trace('sendAnimation');
-    return this.client.telegram.sendAnimation(this.getMessageTargetId(ctx), ...args);
+    const msg = this.client.telegram.sendAnimation(this.getMessageTargetId(ctx), ...args);
+    await this.saveMessage(msg);
+    return msg;
   }
   sendDocument(ctx: any, ...args: any[]) {
     this.log.trace('sendDocument');
-    return this.client.telegram.sendDocument(this.getMessageTargetId(ctx), ...args);
+    const msg = this.client.telegram.sendDocument(this.getMessageTargetId(ctx), ...args);
+    await this.saveMessage(msg);
+    return msg;
   }
   sendPhoto(ctx: any, ...args: any[]) {
     this.log.trace('sendPhoto');
-    return this.client.telegram.sendPhoto(this.getMessageTargetId(ctx), ...args);
+    const msg = this.client.telegram.sendPhoto(this.getMessageTargetId(ctx), ...args);
+    await this.saveMessage(msg);
+    return msg;
   }
 
   isMessageLike(ctx: any) {
